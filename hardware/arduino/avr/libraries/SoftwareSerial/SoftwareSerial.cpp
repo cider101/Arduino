@@ -1,5 +1,5 @@
 /*
-SoftwareSerial.cpp (formerly NewSoftSerial.cpp) - 
+SoftSerial.cpp (formerly NewSoftSerial.cpp) -
 Multi-instance software serial library for Arduino/Wiring
 -- Interrupt-driven receive and other improvements by ladyada
    (http://ladyada.net)
@@ -47,7 +47,7 @@ http://arduiniana.org.
 //
 typedef struct _DELAY_TABLE
 {
-  long baud;
+  unsigned long baud;
   unsigned short rx_delay_centering;
   unsigned short rx_delay_intrabit;
   unsigned short rx_delay_stopbit;
@@ -125,7 +125,7 @@ const int XMIT_START_ADJUSTMENT = 6;
 
 #else
 
-#error This version of SoftwareSerial supports only 20, 16 and 8MHz processors
+#error This version of SoftSerial supports only 20, 16 and 8MHz processors
 
 #endif
 
@@ -133,9 +133,7 @@ const int XMIT_START_ADJUSTMENT = 6;
 // Statics
 //
 SoftwareSerial *SoftwareSerial::active_object = 0;
-char SoftwareSerial::_receive_buffer[_SS_MAX_RX_BUFF]; 
-volatile uint8_t SoftwareSerial::_receive_buffer_tail = 0;
-volatile uint8_t SoftwareSerial::_receive_buffer_head = 0;
+void (*interrupt_handler)() = 0;
 
 //
 // Debugging
@@ -161,7 +159,7 @@ inline void DebugPulse(uint8_t pin, uint8_t count)
 //
 
 /* static */ 
-inline void SoftwareSerial::tunedDelay(uint16_t delay) { 
+inline void SoftSerial::tunedDelay(uint16_t delay) {
   uint8_t tmp=0;
 
   asm volatile("sbiw    %0, 0x01 \n\t"
@@ -180,10 +178,10 @@ bool SoftwareSerial::listen()
 {
   if (active_object != this)
   {
-    _buffer_overflow = false;
+    _overflow_flags &= ~SerialBase::Rx;
     uint8_t oldSREG = SREG;
     cli();
-    _receive_buffer_head = _receive_buffer_tail = 0;
+    _rx_buffer_head = _rx_buffer_tail = 0;
     active_object = this;
     SREG = oldSREG;
     return true;
@@ -195,7 +193,7 @@ bool SoftwareSerial::listen()
 //
 // The receive routine called by the interrupt handler
 //
-void SoftwareSerial::recv()
+void SoftSerial::recv()
 {
 
 #if GCC_VERSION < 40302
@@ -244,19 +242,12 @@ void SoftwareSerial::recv()
       d = ~d;
 
     // if buffer full, set the overflow flag and return
-    if ((_receive_buffer_tail + 1) % _SS_MAX_RX_BUFF != _receive_buffer_head) 
-    {
-      // save new data in buffer: tail points to where byte goes
-      _receive_buffer[_receive_buffer_tail] = d; // save new byte
-      _receive_buffer_tail = (_receive_buffer_tail + 1) % _SS_MAX_RX_BUFF;
-    } 
-    else 
+    if(!put(d))
     {
 #if _DEBUG // for scope: pulse pin as overflow indictator
       DebugPulse(_DEBUG_PIN1, 1);
 #endif
-      _buffer_overflow = true;
-    }
+     }
   }
 
 #if GCC_VERSION < 40302
@@ -275,15 +266,17 @@ void SoftwareSerial::recv()
 #endif
 }
 
-void SoftwareSerial::tx_pin_write(uint8_t pin_state)
+void SoftSerial::tx_pin_high()
 {
-  if (pin_state == LOW)
-    *_transmitPortRegister &= ~_transmitBitMask;
-  else
     *_transmitPortRegister |= _transmitBitMask;
 }
 
-uint8_t SoftwareSerial::rx_pin_read()
+void SoftSerial::tx_pin_low()
+{
+    *_transmitPortRegister &= ~_transmitBitMask;
+}
+
+uint8_t SoftSerial::rx_pin_read()
 {
   return *_receivePortRegister & _receiveBitMask;
 }
@@ -295,49 +288,59 @@ uint8_t SoftwareSerial::rx_pin_read()
 /* static */
 inline void SoftwareSerial::handle_interrupt()
 {
-  if (active_object)
-  {
+  if (active_object) {
     active_object->recv();
   }
 }
 
+inline void SoftSerial::handle_interrupt()
+{
+//  if (active_object) {
+//    active_object->recv();
+//  }
+}
+
+
 #if defined(PCINT0_vect)
 ISR(PCINT0_vect)
 {
-  SoftwareSerial::handle_interrupt();
+	SoftwareSerial::handle_interrupt();
+	SoftSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT1_vect)
 ISR(PCINT1_vect)
 {
-  SoftwareSerial::handle_interrupt();
+	SoftwareSerial::handle_interrupt();
+	SoftSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT2_vect)
 ISR(PCINT2_vect)
 {
-  SoftwareSerial::handle_interrupt();
+	SoftwareSerial::handle_interrupt();
+	SoftSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT3_vect)
 ISR(PCINT3_vect)
 {
-  SoftwareSerial::handle_interrupt();
+	SoftwareSerial::handle_interrupt();
+	SoftSerial::handle_interrupt();
 }
 #endif
 
 //
 // Constructor
 //
-SoftwareSerial::SoftwareSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic /* = false */) : 
+SoftSerial::SoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic /* = false */) :
   _rx_delay_centering(0),
   _rx_delay_intrabit(0),
   _rx_delay_stopbit(0),
   _tx_delay(0),
-  _buffer_overflow(false),
   _inverse_logic(inverse_logic)
 {
   setTX(transmitPin);
@@ -347,12 +350,12 @@ SoftwareSerial::SoftwareSerial(uint8_t receivePin, uint8_t transmitPin, bool inv
 //
 // Destructor
 //
-SoftwareSerial::~SoftwareSerial()
+SoftSerial::~SoftSerial()
 {
   end();
 }
 
-void SoftwareSerial::setTX(uint8_t tx)
+void SoftSerial::setTX(uint8_t tx)
 {
   pinMode(tx, OUTPUT);
   digitalWrite(tx, HIGH);
@@ -361,7 +364,7 @@ void SoftwareSerial::setTX(uint8_t tx)
   _transmitPortRegister = portOutputRegister(port);
 }
 
-void SoftwareSerial::setRX(uint8_t rx)
+void SoftSerial::setRX(uint8_t rx)
 {
   pinMode(rx, INPUT);
   if (!_inverse_logic)
@@ -376,13 +379,13 @@ void SoftwareSerial::setRX(uint8_t rx)
 // Public methods
 //
 
-void SoftwareSerial::begin(long speed)
+void SoftSerial::begin(unsigned long speed)
 {
   _rx_delay_centering = _rx_delay_intrabit = _rx_delay_stopbit = _tx_delay = 0;
 
   for (unsigned i=0; i<sizeof(table)/sizeof(table[0]); ++i)
   {
-    long baud = pgm_read_dword(&table[i].baud);
+    unsigned long baud = pgm_read_dword(&table[i].baud);
     if (baud == speed)
     {
       _rx_delay_centering = pgm_read_word(&table[i].rx_delay_centering);
@@ -409,83 +412,45 @@ void SoftwareSerial::begin(long speed)
   pinMode(_DEBUG_PIN2, OUTPUT);
 #endif
 
-  listen();
+
 }
 
-void SoftwareSerial::end()
+void SoftSerial::end()
 {
   if (digitalPinToPCMSK(_receivePin))
     *digitalPinToPCMSK(_receivePin) &= ~_BV(digitalPinToPCMSKbit(_receivePin));
 }
 
 
-// Read data from buffer
-int SoftwareSerial::read()
+size_t SoftSerial::write(uint8_t b)
 {
-  if (!isListening())
-    return -1;
-
-  // Empty buffer?
-  if (_receive_buffer_head == _receive_buffer_tail)
-    return -1;
-
-  // Read from "head"
-  uint8_t d = _receive_buffer[_receive_buffer_head]; // grab next byte
-  _receive_buffer_head = (_receive_buffer_head + 1) % _SS_MAX_RX_BUFF;
-  return d;
-}
-
-int SoftwareSerial::available()
-{
-  if (!isListening())
-    return 0;
-
-  return (_receive_buffer_tail + _SS_MAX_RX_BUFF - _receive_buffer_head) % _SS_MAX_RX_BUFF;
-}
-
-size_t SoftwareSerial::write(uint8_t b)
-{
-  if (_tx_delay == 0) {
+  if (_tx_delay == 0) { //is this check really necessary ?
     setWriteError();
     return 0;
   }
 
+  typedef void(SoftSerial::*mem_func)();
+  mem_func tx_high_ = _inverse_logic ? &SoftSerial::tx_pin_low : &SoftSerial::tx_pin_high;
+  mem_func tx_low_ = _inverse_logic ? &SoftSerial::tx_pin_high : &SoftSerial::tx_pin_low;
+
+  #define tx_low() (this->*tx_low_)()
+  #define tx_high() (this->*tx_high_)()
+
   uint8_t oldSREG = SREG;
   cli();  // turn off interrupts for a clean txmit
 
+
   // Write the start bit
-  tx_pin_write(_inverse_logic ? HIGH : LOW);
+  tx_low();
   tunedDelay(_tx_delay + XMIT_START_ADJUSTMENT);
 
-  // Write each of the 8 bits
-  if (_inverse_logic)
-  {
-    for (byte mask = 0x01; mask; mask <<= 1)
-    {
-      if (b & mask) // choose bit
-        tx_pin_write(LOW); // send 1
-      else
-        tx_pin_write(HIGH); // send 0
-    
-      tunedDelay(_tx_delay);
-    }
-
-    tx_pin_write(LOW); // restore pin to natural state
+  for (byte mask = 0x01; mask; mask <<= 1) {
+     (b & mask) ? tx_high() : tx_low();
+     tunedDelay(_tx_delay);
   }
-  else
-  {
-    for (byte mask = 0x01; mask; mask <<= 1)
-    {
-      if (b & mask) // choose bit
-        tx_pin_write(HIGH); // send 1
-      else
-        tx_pin_write(LOW); // send 0
-    
-      tunedDelay(_tx_delay);
-    }
 
-    tx_pin_write(HIGH); // restore pin to natural state
-  }
+  tx_high(); // restore pin to natural state
+
 
   SREG = oldSREG; // turn interrupts back on
   tunedDelay(_tx_delay);
@@ -493,26 +458,17 @@ size_t SoftwareSerial::write(uint8_t b)
   return 1;
 }
 
-void SoftwareSerial::flush()
-{
-  if (!isListening())
-    return;
+static SoftSerial softSer(1, 2);
+static SoftwareSerial softwareSer(1, 2);
 
-  uint8_t oldSREG = SREG;
-  cli();
-  _receive_buffer_head = _receive_buffer_tail = 0;
-  SREG = oldSREG;
-}
 
-int SoftwareSerial::peek()
-{
-  if (!isListening())
-    return -1;
-
-  // Empty buffer?
-  if (_receive_buffer_head == _receive_buffer_tail)
-    return -1;
-
-  // Read from "head"
-  return _receive_buffer[_receive_buffer_head];
-}
+//void SoftSerial::flush()
+//{
+//  if (isListening()) {
+//	  flush(SerialBase::Rx);
+//  }
+//  uint8_t oldSREG = SREG;
+//  cli();
+//  _rx_buffer_head = _rx_buffer_tail = 0;
+//  SREG = oldSREG;
+//}

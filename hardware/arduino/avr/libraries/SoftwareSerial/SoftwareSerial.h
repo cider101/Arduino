@@ -33,7 +33,7 @@ http://arduiniana.org.
 #define SoftwareSerial_h
 
 #include <inttypes.h>
-#include <Stream.h>
+#include <SerialBase.h>
 
 /******************************************************************************
 * Definitions
@@ -44,13 +44,29 @@ http://arduiniana.org.
 #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #endif
 
-class SoftwareSerial : public Stream
+class SoftSerial : public BufferedSerialBase<_SS_MAX_RX_BUFF, 0>
 {
+	public:
+	  // public methods
+		SoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic = false);
+	  ~SoftSerial();
+
+	  void begin(unsigned long speed);
+	  void end();
+
+	  virtual size_t write(uint8_t byte);
+	  using Print::write;
+
+	protected:
+	  typedef BufferedSerialBase<_SS_MAX_RX_BUFF, 0> super;
+	  void recv();
+
+
 private:
-  // per object data
   uint8_t _receivePin;
   uint8_t _receiveBitMask;
   volatile uint8_t *_receivePortRegister;
+
   uint8_t _transmitBitMask;
   volatile uint8_t *_transmitPortRegister;
 
@@ -59,54 +75,55 @@ private:
   uint16_t _rx_delay_stopbit;
   uint16_t _tx_delay;
 
-  uint16_t _buffer_overflow:1;
   uint16_t _inverse_logic:1;
 
-  // static data
-  static char _receive_buffer[_SS_MAX_RX_BUFF]; 
-  static volatile uint8_t _receive_buffer_tail;
-  static volatile uint8_t _receive_buffer_head;
-  static SoftwareSerial *active_object;
 
   // private methods
-  void recv();
   uint8_t rx_pin_read();
-  void tx_pin_write(uint8_t pin_state);
+  void tx_pin_low();
+  void tx_pin_high();
+
   void setTX(uint8_t transmitPin);
   void setRX(uint8_t receivePin);
 
   // private static method for timing
   static inline void tunedDelay(uint16_t delay);
 
+
 public:
-  // public methods
-  SoftwareSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic = false);
-  ~SoftwareSerial();
-  void begin(long speed);
-  bool listen();
-  void end();
-  bool isListening() { return this == active_object; }
-  bool overflow() { bool ret = _buffer_overflow; _buffer_overflow = false; return ret; }
-  int peek();
-
-  virtual size_t write(uint8_t byte);
-  virtual int read();
-  virtual int available();
-  virtual void flush();
-  
-  using Print::write;
-
   // public only for easy access by interrupt handlers
   static inline void handle_interrupt();
 };
 
-// Arduino 0012 workaround
-#undef int
-#undef char
-#undef long
-#undef byte
-#undef float
-#undef abs
-#undef round
+
+class SoftwareSerial : public SoftSerial {
+	private:
+		static SoftwareSerial *active_object;
+
+	public:
+		SoftwareSerial(uint8_t rx, uint8_t tx) : SoftSerial(rx, tx) {}
+
+		void begin(unsigned long speed) { SoftSerial::begin(speed); listen(); }
+		bool isListening() { return this == active_object; }
+		bool overflow() { return hasOverflow(SerialBase::Rx); }
+		bool listen();
+
+		virtual int read() { return isListening() ? super::read() : -1; }
+		virtual int available() { return isListening() ? super::available() : 0; }
+		virtual int peek()  { return isListening() ? super::peek(0) : 0; }
+		virtual void flush() { if (isListening()) { super::flush(SerialBase::Rx); }}
+
+	/*private:*/
+		static inline void handle_interrupt();
+};
+
+//// Arduino 0012 workaround
+//#undef int
+//#undef char
+//#undef long
+//#undef byte
+//#undef float
+//#undef abs
+//#undef round
 
 #endif
