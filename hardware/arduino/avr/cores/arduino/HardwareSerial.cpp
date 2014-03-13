@@ -76,6 +76,24 @@ void serialEventRun(void)
 #endif
 }
 
+HardwareSerial& HardwareSerial::instance(SerialInstance instance) {
+	switch(instance) {
+#ifdef HAVE_HWSERIAL0
+		case standardSerial: return Serial;
+#endif
+#ifdef HAVE_HWSERIAL1
+		case firstSerial: return Serial1;
+#endif
+#ifdef HAVE_HWSERIAL2
+		case secondSerial: return Serial2;
+#endif
+#ifdef HAVE_HWSERIAL3
+		case thirdSerial: return Serial3;
+#endif
+	}
+	return Serial;
+}
+
 // Actual interrupt handlers //////////////////////////////////////////////////////////////
 
 void HardwareSerial::_tx_udr_empty_irq(void)
@@ -150,31 +168,7 @@ void HardwareSerial::end()
   _rx_buffer_head = _rx_buffer_tail;
 }
 
-int HardwareSerial::available(void)
-{
-  return (unsigned int)(SERIAL_BUFFER_SIZE + _rx_buffer_head - _rx_buffer_tail) % SERIAL_BUFFER_SIZE;
-}
 
-int HardwareSerial::peek(void)
-{
-  if (_rx_buffer_head == _rx_buffer_tail) {
-    return -1;
-  } else {
-    return _rx_buffer[_rx_buffer_tail];
-  }
-}
-
-int HardwareSerial::read(void)
-{
-  // if the head isn't ahead of the tail, we don't have any characters
-  if (_rx_buffer_head == _rx_buffer_tail) {
-    return -1;
-  } else {
-    unsigned char c = _rx_buffer[_rx_buffer_tail];
-    _rx_buffer_tail = (uint8_t)(_rx_buffer_tail + 1) % SERIAL_BUFFER_SIZE;
-    return c;
-  }
-}
 
 void HardwareSerial::flush()
 {
@@ -232,6 +226,8 @@ size_t HardwareSerial::write(uint8_t c)
   
   return 1;
 }
+
+
 
 
 #endif // whole file

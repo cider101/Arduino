@@ -26,7 +26,7 @@
 
 #include <inttypes.h>
 
-#include "Stream.h"
+#include "SerialBase.h"
 
 // Define constants and variables for buffering incoming serial data.  We're
 // using a ring buffer (I think), in which head is the index of the location
@@ -64,7 +64,7 @@
 #define SERIAL_7O2 0x3C
 #define SERIAL_8O2 0x3E
 
-class HardwareSerial : public Stream
+class HardwareSerial : public BufferedSerialBase<SERIAL_BUFFER_SIZE, SERIAL_BUFFER_SIZE>
 {
   protected:
     volatile uint8_t * const _ubrrh;
@@ -76,36 +76,53 @@ class HardwareSerial : public Stream
     // Has any byte been written to the UART since begin()
     bool _written;
 
-    volatile uint8_t _rx_buffer_head;
-    volatile uint8_t _rx_buffer_tail;
-    volatile uint8_t _tx_buffer_head;
-    volatile uint8_t _tx_buffer_tail;
-
-    // Don't put any members after these buffers, since only the first
-    // 32 bytes of this struct can be accessed quickly using the ldd
-    // instruction.
-    unsigned char _rx_buffer[SERIAL_BUFFER_SIZE];
-    unsigned char _tx_buffer[SERIAL_BUFFER_SIZE];
+//    volatile uint8_t _rx_buffer_head;
+//    volatile uint8_t _rx_buffer_tail;
+//    volatile uint8_t _tx_buffer_head;
+//    volatile uint8_t _tx_buffer_tail;
+//
+//    // Don't put any members after these buffers, since only the first
+//    // 32 bytes of this struct can be accessed quickly using the ldd
+//    // instruction.
+//    unsigned char _rx_buffer[SERIAL_BUFFER_SIZE];
+//    unsigned char _tx_buffer[SERIAL_BUFFER_SIZE];
 
   public:
     inline HardwareSerial(
       volatile uint8_t *ubrrh, volatile uint8_t *ubrrl,
       volatile uint8_t *ucsra, volatile uint8_t *ucsrb,
       volatile uint8_t *ucsrc, volatile uint8_t *udr);
+
     void begin(unsigned long baud) { begin(baud, SERIAL_8N1); }
     void begin(unsigned long, uint8_t);
     void end();
-    virtual int available(void);
-    virtual int peek(void);
-    virtual int read(void);
+
     virtual void flush(void);
     virtual size_t write(uint8_t);
-    inline size_t write(unsigned long n) { return write((uint8_t)n); }
-    inline size_t write(long n) { return write((uint8_t)n); }
-    inline size_t write(unsigned int n) { return write((uint8_t)n); }
-    inline size_t write(int n) { return write((uint8_t)n); }
+
+//either provivde an correct (writing the number of bytes) implementation or just drop those methods!!
+//    inline size_t write(unsigned long n) { return write((uint8_t)n); }
+//    inline size_t write(long n) { return write((uint8_t)n); }
+//    inline size_t write(unsigned int n) { return write((uint8_t)n); }
+//    inline size_t write(int n) { return write((uint8_t)n); }
     using Print::write; // pull in write(str) and write(buf, size) from Print
     operator bool() { return true; }
+
+     enum SerialInstance {
+#if defined(UBRRH) || defined(UBRR0H)
+   	 standardSerial
+#endif
+#if defined(UBRR1H)
+   	 firstSerial
+#endif
+#if defined(UBRR1H)
+   	 ,secondSerial
+#endif
+#if defined(UBRR1H)
+   	 ,thirdSerial
+#endif
+    };
+    static HardwareSerial& instance(SerialInstance = standardSerial);
 
     // Interrupt handlers - Not intended to be called externally
     inline void _rx_complete_irq(void);
