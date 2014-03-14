@@ -37,9 +37,6 @@ http://arduiniana.org.
 //
 SoftwareSerial *SoftwareSerial::active_object = 0;
 
-inline void SoftwareSerial::handle_interrupt() {
-	SoftSerial::handle_interrupt(&_sharedInstance);
-}
 
 // This function sets the current object as the "listening"
 // one and returns true if it replaces another
