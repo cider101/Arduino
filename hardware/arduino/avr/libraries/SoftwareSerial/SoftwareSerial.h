@@ -33,88 +33,51 @@ http://arduiniana.org.
 #define SoftwareSerial_h
 
 #include <inttypes.h>
-#include <SerialBase.h>
+#include "SoftSerial.h"
 
 /******************************************************************************
 * Definitions
 ******************************************************************************/
 
-#define _SS_MAX_RX_BUFF 64 // RX buffer size
 #ifndef GCC_VERSION
 #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #endif
 
-class SoftSerial : public BufferedSerialBase<_SS_MAX_RX_BUFF, 0>
-{
-	public:
-	  // public methods
-		SoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic = false);
-	  ~SoftSerial();
 
-	  void begin(unsigned long speed);
-	  void end();
-
-	  virtual size_t write(uint8_t byte);
-	  using Print::write;
-
-	protected:
-	  typedef BufferedSerialBase<_SS_MAX_RX_BUFF, 0> super;
-	  void recv();
-
-
-private:
-  uint8_t _receivePin;
-  uint8_t _receiveBitMask;
-  volatile uint8_t *_receivePortRegister;
-
-  uint8_t _transmitBitMask;
-  volatile uint8_t *_transmitPortRegister;
-
-  uint16_t _rx_delay_centering;
-  uint16_t _rx_delay_intrabit;
-  uint16_t _rx_delay_stopbit;
-  uint16_t _tx_delay;
-
-  uint16_t _inverse_logic:1;
-
-
-  // private methods
-  uint8_t rx_pin_read();
-  void tx_pin_low();
-  void tx_pin_high();
-
-  void setTX(uint8_t transmitPin);
-  void setRX(uint8_t receivePin);
-
-  // private static method for timing
-  static inline void tunedDelay(uint16_t delay);
-
-
-public:
-  // public only for easy access by interrupt handlers
-  static inline void handle_interrupt();
-};
-
-
-class SoftwareSerial : public SoftSerial {
+class SoftwareSerial : public SerialBase {
 	private:
 		static SoftwareSerial *active_object;
+		static SoftSerial _sharedInstance;
+
+		uint8_t _rx:6, _tx:6;
+		bool _inverse_logic:1;
 
 	public:
-		SoftwareSerial(uint8_t rx, uint8_t tx) : SoftSerial(rx, tx) {}
+		SoftwareSerial(uint8_t rx, uint8_t tx, bool inverse_logic = false)
+		: _rx(rx), _tx(tx), _inverse_logic(inverse_logic) {}
 
-		void begin(unsigned long speed) { SoftSerial::begin(speed); listen(); }
+		void begin(unsigned long speed) { listen(); _sharedInstance.begin(speed);  }
 		bool isListening() { return this == active_object; }
-		bool overflow() { return hasOverflow(SerialBase::Rx); }
 		bool listen();
 
-		virtual int read() { return isListening() ? super::read() : -1; }
-		virtual int available() { return isListening() ? super::available() : 0; }
-		virtual int peek()  { return isListening() ? super::peek(0) : 0; }
-		virtual void flush() { if (isListening()) { super::flush(SerialBase::Rx); }}
+		bool overflow() { return hasOverflow(SerialBase::Rx); }
+		virtual bool hasOverflow(SerialBase::Direction dir) { return isListening() ? _sharedInstance.hasOverflow(SerialBase::Rx) : false; }
+
+		virtual int read() { return isListening() ? _sharedInstance.read() : -1; }
+		virtual size_t write(uint8_t value) { return isListening() ? _sharedInstance.write(value) : 0; }
+		virtual int available() { return isListening() ? _sharedInstance.available() : 0; }
+
+		virtual int peek()  { return isListening() ? _sharedInstance.peek(0) : -1; }
+		virtual int peek(size_t)  { return isListening() ? _sharedInstance.peek(0) : -1; }
+
+		virtual void flush() { flush(SerialBase::Rx); }
+		virtual void flush(SerialBase::Direction dir) { isListening() ? _sharedInstance.flush(dir) : nop(); }
+
 
 	/*private:*/
 		static inline void handle_interrupt();
+	private:
+		void nop() {};
 };
 
 //// Arduino 0012 workaround

@@ -2,7 +2,7 @@
  * SerialBase.h
  *
  *  Created on: 13.03.2014
- *      Author: REWEL
+ *  Author: cider101
  */
 
 #ifndef SERIALBASE_H_
@@ -17,21 +17,30 @@ struct SerialBase : public Stream {
 	   virtual int peek(size_t pos) = 0;
 	   virtual int peek() { return peek(0); }
 
-	   virtual void flush(Direction direction);
+	   virtual void flush(Direction direction) = 0;
 	   virtual void flush() { flush(Tx); }
-	   virtual bool hasOverflow(Direction dir) = 0;
+
+	   bool hasOverflow(Direction dir) {
+	   	bool val = _overflow_flags & dir;
+	   	_overflow_flags &= ~dir;
+	   	return val;
+	   }
+
 //	   virtual bool hasUnderflow() = 0;
+
+	protected:
+		uint8_t _overflow_flags;
+
 };
 
 template<bool> struct IndexType {};
 template<> struct IndexType<true> { typedef uint8_t index_type; };
 template<> struct IndexType<false> { typedef size_t index_type; };
 
-template<size_t rx_buffer_size, size_t tx_buffer_size>
-class BufferedSerialBase : public SerialBase {
+template<size_t rx_buffer_size>
+class RxBufferedSerialBase : public SerialBase {
 	public:
-		enum {RXSIZE = rx_buffer_size + (rx_buffer_size == 0),
-			   TXSIZE=tx_buffer_size + (tx_buffer_size == 0)};
+		enum {RXSIZE = rx_buffer_size + (rx_buffer_size == 0) };
 
 		int read()
 		{ return _rx_buffer_head == _rx_buffer_tail ? -1 : get(); }
@@ -42,14 +51,9 @@ class BufferedSerialBase : public SerialBase {
 		void flush(Direction dir) {
 			if(dir & Rx) {
 				_rx_buffer_head = _rx_buffer_tail;
-			}
-			if(dir & Tx) {
-				_tx_buffer_head = _tx_buffer_tail;
+				_overflow_flags &= ~Rx;
 			}
 		}
-
-		bool hasOverflow(Direction dir)
-		{ bool val = _overflow_flags & dir; _overflow_flags &= ~dir; return val; }
 
 		int available(void)
 		{ return (unsigned int)(RXSIZE + _rx_buffer_head - _rx_buffer_tail) % RXSIZE; }
@@ -60,8 +64,9 @@ class BufferedSerialBase : public SerialBase {
 		    _rx_buffer_tail = (uint8_t)(_rx_buffer_tail + 1) % RXSIZE;
 		    return c;
 		}
+
 		bool put(const char c) {
-		    uint8_t next = (unsigned int)(_rx_buffer_head + 1) % TXSIZE;
+		    uint8_t next = (unsigned int)(_rx_buffer_head + 1) % RXSIZE;
 		    if(next == _rx_buffer_tail) {
 		   	 _overflow_flags |= Rx;
 
@@ -73,15 +78,34 @@ class BufferedSerialBase : public SerialBase {
 		}
 
 	protected:
-		BufferedSerialBase() :
-	    _rx_buffer_head(0), _rx_buffer_tail(0),
-	    _tx_buffer_head(0), _tx_buffer_tail(0) {}
+		RxBufferedSerialBase() : _rx_buffer_head(0), _rx_buffer_tail(0) {}
 
 		uint8_t _overflow_flags;
 
 		volatile typename IndexType<RXSIZE<256>::index_type _rx_buffer_head,  _rx_buffer_tail;
 	   uint8_t _rx_buffer[RXSIZE];
 
+};
+
+template<size_t rx_buffer_size, size_t tx_buffer_size>
+class RxTxBufferedSerialBase : public RxBufferedSerialBase<rx_buffer_size> {
+	public:
+		typedef RxBufferedSerialBase<rx_buffer_size> super;
+		enum { TXSIZE=tx_buffer_size + (tx_buffer_size == 0)};
+
+		void flush(SerialBase::Direction dir) {
+			super::flush(dir);
+			if(dir & SerialBase::Tx) {
+				_tx_buffer_head = _tx_buffer_tail;
+			}
+			SerialBase::_overflow_flags &= ~dir;
+		}
+
+	protected:
+			RxTxBufferedSerialBase() : _tx_buffer_head(0), _tx_buffer_tail(0) {}
+
+
+	protected:
 	   volatile typename IndexType<TXSIZE<256>::index_type _tx_buffer_head,  _tx_buffer_tail;
 	   uint8_t _tx_buffer[TXSIZE];
 };

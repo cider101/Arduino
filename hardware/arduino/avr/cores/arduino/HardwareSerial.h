@@ -64,7 +64,7 @@
 #define SERIAL_7O2 0x3C
 #define SERIAL_8O2 0x3E
 
-class HardwareSerial : public BufferedSerialBase<SERIAL_BUFFER_SIZE, SERIAL_BUFFER_SIZE>
+class HardwareSerial : public RxTxBufferedSerialBase<SERIAL_BUFFER_SIZE, SERIAL_BUFFER_SIZE>
 {
   protected:
     volatile uint8_t * const _ubrrh;
