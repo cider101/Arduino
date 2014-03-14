@@ -20,6 +20,9 @@ struct SerialBase : public Stream {
 	   virtual void flush(Direction direction) = 0;
 	   virtual void flush() { flush(Tx); }
 
+	   virtual size_t available(Direction direction);
+	   using Stream::available;
+
 	   bool hasOverflow(Direction dir) {
 	   	bool val = _overflow_flags & dir;
 	   	_overflow_flags &= ~dir;
@@ -40,7 +43,7 @@ template<> struct IndexType<false> { typedef size_t index_type; };
 template<size_t rx_buffer_size>
 class RxBufferedSerialBase : public SerialBase {
 	public:
-		enum {RXSIZE = rx_buffer_size + (rx_buffer_size == 0) };
+		enum {RXSIZE = rx_buffer_size };
 
 		int read()
 		{ return _rx_buffer_head == _rx_buffer_tail ? -1 : get(); }
@@ -55,7 +58,13 @@ class RxBufferedSerialBase : public SerialBase {
 			}
 		}
 
+		size_t available(SerialBase::Direction direction)
+		{ return direction & Rx ? rxAvailable() : 0; }
+
 		int available(void)
+		{ return rxAvailable(); }
+
+		inline size_t rxAvailable(void)
 		{ return (unsigned int)(RXSIZE + _rx_buffer_head - _rx_buffer_tail) % RXSIZE; }
 
 	protected:
@@ -91,7 +100,12 @@ template<size_t rx_buffer_size, size_t tx_buffer_size>
 class RxTxBufferedSerialBase : public RxBufferedSerialBase<rx_buffer_size> {
 	public:
 		typedef RxBufferedSerialBase<rx_buffer_size> super;
-		enum { TXSIZE=tx_buffer_size + (tx_buffer_size == 0)};
+		enum { TXSIZE = tx_buffer_size };
+
+		size_t available(SerialBase::Direction direction)
+		{ return direction & SerialBase::Tx ?  txAvailable() : super::available(SerialBase::Rx); }
+
+	   using Stream::available;
 
 		void flush(SerialBase::Direction dir) {
 			super::flush(dir);
@@ -101,8 +115,11 @@ class RxTxBufferedSerialBase : public RxBufferedSerialBase<rx_buffer_size> {
 			SerialBase::_overflow_flags &= ~dir;
 		}
 
+		size_t txAvailable()
+		{ return (unsigned int)(TXSIZE + _tx_buffer_head - _tx_buffer_tail) % TXSIZE; }
+
 	protected:
-			RxTxBufferedSerialBase() : _tx_buffer_head(0), _tx_buffer_tail(0) {}
+		RxTxBufferedSerialBase() : _tx_buffer_head(0), _tx_buffer_tail(0) {}
 
 
 	protected:
